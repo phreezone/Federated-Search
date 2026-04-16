@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: S3 Bucket and Web Identity Role for Cortex XSIAM with PutObject permissions
+
+Resources:
+  # 1. The S3 Bucket
+  WAFDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "xsiam-federated-waf-${AWS::AccountId}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # 2. The IAM Managed Policy (Includes PutObject for your workstation)
+  XSIAMFederatedSearchPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub "XSIAMFederatedSearchPolicy-${AWS::Region}"
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - "s3:ListBucket"
+              - "s3:GetBucketLocation"
+            Resource: !GetAtt WAFDataBucket.Arn
+          - Effect: Allow
+            Action:
+              - "s3:GetObject"
+              - "s3:PutObject" # Permission added to allow file uploads
+            Resource: !Sub "${WAFDataBucket.Arn}/wafLogs/*" # Scoped to wafLogs folder
+
+  # 3. The Web Identity Role
+  XSIAMFederatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "CortexXSIAMFederatedRole-${AWS::Region}"
+      MaxSessionDuration: 43200 
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: "accounts.google.com"
+            Action: "sts:AssumeRoleWithWebIdentity"
+            Condition:
+              StringEquals:
+                "accounts.google.com:aud": "00000" # Placeholder for XSIAM Identity
+      ManagedPolicyArns:
+        - !Ref XSIAMFederatedSearchPolicy
+
+Outputs:
+  RoleARN:
+    Value: !GetAtt XSIAMFederatedRole.Arn
+  BucketName:
+    Value: !Ref WAFDataBucket
